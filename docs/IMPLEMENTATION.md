@@ -26,6 +26,13 @@ the AAC adapter is registered. Revision/wakeup support is optional on the
 Forge 1.20.1 contract and is reported as such; it is not silently treated as
 available.
 
+The recovery digest comes from the public
+`BatchTransactionRecord.payloadDigest()` contract. AAC does not reproduce
+ACO's payload serialization or hashing. The call is isolated behind a small
+compatibility bridge so an older optional ACO boundary fails closed into
+QUARANTINE instead of linking against an internal record type or accepting an
+unverified recovery.
+
 `ECOCraftingPatternBusBatchMixin` implements:
 
 - `ProviderOwnedPatternBatchTarget`;
