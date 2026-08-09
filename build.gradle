@@ -11,6 +11,16 @@ if (minecraft_version != expectedMinecraftVersion) {
             "The Forge AAC build must target ${expectedMinecraftVersion}, got ${minecraft_version}")
 }
 
+def ae2Variant = (findProperty('ae2Variant') ?: 'upstream').toString().toLowerCase(Locale.ROOT)
+def ae2Profiles = [
+        upstream: [version: '15.4.10', localFile: 'appliedenergistics2-forge-15.4.10.jar'],
+        uelm: [version: '15.5.0-uelm', localFile: 'appliedenergistics2-forge-15.5.0-uelm.jar']
+]
+if (!ae2Profiles.containsKey(ae2Variant)) {
+    throw new GradleException("Unsupported ae2Variant '${ae2Variant}'. Use upstream or uelm.")
+}
+def ae2Profile = ae2Profiles[ae2Variant]
+
 base {
     archivesName = "aac${mod_version}_${minecraft_version}"
 }
@@ -59,6 +69,13 @@ repositories {
     dirs(acoJarProperty == null ? file("${buildDir}/aco-contract") : file(acoJarProperty).parentFile)
     }
     maven {
+        name = 'ExpandiumReleases'
+        url = 'https://repo.expandium.net/releases'
+        content {
+            includeGroup 'appeng'
+        }
+    }
+    maven {
         name = 'ModMaven'
         url = 'https://modmaven.dev/'
         content {
@@ -85,7 +102,10 @@ dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.4.18'
     if (findProperty('aacMetadataOnly') != 'true') {
     def localModsDir = file(findProperty('aacLocalModsDir') ?: '../../mods')
-    def localAe2 = new File(localModsDir, 'appliedenergistics2-forge-15.4.10.jar')
+    def ae2JarProperty = findProperty('ae2Jar')
+    def localAe2 = ae2JarProperty == null
+            ? new File(localModsDir, ae2Profile.localFile)
+            : file(ae2JarProperty)
     // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.3.0を解決する。
     def localNeoEco = [
         new File(localModsDir, 'neoecoae-20.3.0.jar'),
@@ -108,9 +128,10 @@ dependencies {
     def localAcoDependency = project.dependencies.create(files(localAco))
 
     // 必須の検証済みArtifactが一つでも欠ける場合は、推測したAPIでビルドを続行しない。
-    if (!localAe2.isFile() || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
+    if ((ae2Variant == 'upstream' && !localAe2.isFile())
+            || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
         throw new GradleException(
-                'AAC requires the exact local AE2, Neo ECO, LDLib, and explicit ACO contract artifacts documented by this project.')
+                'AAC requires the selected AE2 profile, exact Neo ECO, LDLib, and explicit ACO contract artifacts documented by this project.')
     }
 
     def acoArchive = new java.util.jar.JarFile(localAco)
@@ -134,7 +155,11 @@ dependencies {
         acoArchive.close()
     }
 
-    implementation files(localAe2)
+    if (localAe2.isFile()) {
+        implementation files(localAe2)
+    } else {
+        implementation fg.deobf("appeng:appliedenergistics2-forge:${ae2Profile.version}")
+    }
     implementation files(localNeoEco)
     compileOnly files(localLdlib)
     /*
@@ -198,8 +223,44 @@ tasks.register('verifyAcoPublicApiBoundary') {
     }
 }
 
+tasks.register('verifyAe2DependencyProfiles') {
+    description = 'Verify the selected AE2 replacement profile and reject private AE2 imports.'
+    group = 'verification'
+    doLast {
+        if (findProperty('aacMetadataOnly') == 'true') {
+            return
+        }
+        def expectedVersion = "${ae2Profile.version}.jar"
+        def selected = configurations.compileClasspath.resolve().findAll {
+            it.name.startsWith('appliedenergistics2-forge-')
+        }
+        def selectedName = selected ? selected[0].name : ''
+        def selectedVersion = selectedName
+                .replaceFirst(/^appliedenergistics2-forge-/, '')
+                .replaceFirst(/_mapped_official_1\.20\.1\.jar$/, '.jar')
+        if (selected.size() != 1 || selectedVersion != expectedVersion) {
+            throw new GradleException(
+                    "AE2 profile '${ae2Variant}' selected ${selected*.name}; expected version [${expectedVersion}]")
+        }
+
+        // CraftingService is an existing AE2 15.4.10/UELM shared integration
+        // surface used by AAC's CPU-priority output path. Keep that behavior
+        // intact; reject only private fork-specific packages.
+        def privateAe2Import = ~/import\s+appeng\.(?:core|client|integration|hooks|network|uelm)\./
+        fileTree('src/main/java').matching { include '**/*.java' }.files.each { source ->
+            if (source.getText('UTF-8') =~ privateAe2Import) {
+                throw new GradleException("AAC source imports a private AE2 package: ${source}")
+            }
+        }
+    }
+}
+
 tasks.named('compileJava').configure {
     dependsOn tasks.named('verifyAcoPublicApiBoundary')
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('verifyAe2DependencyProfiles')
 }
 
 tasks.withType(JavaCompile).configureEach {

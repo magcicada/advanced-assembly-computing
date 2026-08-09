@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-08-09
+
+### Added
+
+- Added a verified Forge 1.20.1 AE2-UELM `15.5.0-uelm` dependency profile.
+- Kept upstream AE2 `15.4.10` as the default profile and preserved explicit
+  local AE2, Neo ECO, LDLib, and ACO contract checks.
+- Added profile-selection and private-AE2-import regression verification.
+
+### Fixed
+
+- Widened the Forge `ae2` dependency range so the UELM replacement, which keeps
+  the `ae2` mod ID, is accepted without inventing a second dependency.
+
 ## [1.0.4] - 2026-08-08
 
 ### Fixed
