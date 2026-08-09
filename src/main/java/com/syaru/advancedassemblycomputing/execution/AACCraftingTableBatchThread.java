@@ -6,6 +6,7 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import java.util.Optional;
 import java.util.UUID;
+import net.minecraft.nbt.Tag;
 
 /** 一つのNeoECO Threadが所有する、一パターン一仕事のAAC実行境界。 */
 public interface AACCraftingTableBatchThread {
@@ -32,6 +33,9 @@ public interface AACCraftingTableBatchThread {
 
     /** Workerの位置・Thread番号と一緒に診断ログへ出す短い隔離情報。 */
     String aac$quarantineDiagnostic();
+
+    /** Return a defensive copy when an administrator can export the raw NBT. */
+    Optional<Tag> aac$quarantinedRawSidecar();
 
     CraftingTableBatchMode aac$craftingTableBatchMode();
 

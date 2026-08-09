@@ -49,6 +49,18 @@ the build rejects ACO implementation-package imports. Startup fails before a
 job can be accepted if the public receipt/target contract or required AAC
 Mixin interfaces are missing.
 
+## Platform Releases
+
+The Forge and NeoForge lines are independent source branches:
+
+- `mc/1.20.1` uses Java 17 and produces `aac<version>_1.20.1.jar`.
+- `mc/1.21.1` uses Java 21 and produces `aac<version>_1.21.1.jar`.
+
+New release tags are Minecraft-qualified: `aac-v<version>-mc1.20.1` and
+`aac-v<version>-mc1.21.1`. The old unqualified `v1.0.3` and `v1.0.4` tags are
+historical and must never be moved. Platform-dependent source and resources
+are not merged between branches; shared pure logic is transferred explicitly.
+
 ## Execution Model
 
 ### One Real Craft Plus an Exact Coefficient
@@ -131,6 +143,13 @@ The Thread is excluded from new work, exact-output snapshots are empty, and
 neither ME recovery nor block-break drops can consume the uncertain stacks.
 Quarantine is persistent and is not cleared by normal `clearWork`; recovery or
 discard must be an explicit administrator action.
+
+Thread sidecars currently use schema `2`. AAC 1.0.1 schema `1` sidecars are
+accepted only when their complete legacy payload validates; their missing or
+empty state is inferred from the already-loaded Thread output state and then
+rewritten in schema `2`. A current-schema missing state, unknown state, or
+payload in explicit `NONE` is quarantined. The diagnostic API reports whether
+the defensive raw-NBT copy is exportable.
 
 Cancellation before output completion releases only the representative Thread.
 ACO owns the real input escrow and decides what must be returned.

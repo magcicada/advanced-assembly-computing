@@ -25,10 +25,23 @@ Automated tests cover:
   method/field descriptors;
 - the public ACO API boundary, including the public transaction view and
   receipt/target interfaces.
+- schema 1 AAC 1.0.1 migration, explicit `NONE` handling, and malformed
+  unknown-schema, missing-UUID, duplicate-key, and oversized-count fixtures.
 
 The bytecode test reads `neoecoae-20.3.0.jar` from the `aacLocalModsDir`
 passed to Gradle. `verifyAcoPublicApiBoundary` fails if AAC imports an ACO
 implementation package. These checks do not start Minecraft.
+
+The Forge line also has a dependency-free CI check:
+
+```powershell
+.\gradlew.bat verifyAacPlatformConfiguration --no-daemon -PaacMetadataOnly=true
+```
+
+It verifies that the source contains only Forge 1.20.1 metadata, that no
+NeoForge descriptor or 1.21.1 marker is present, and that the artifact base name
+is Minecraft-qualified. A full `check` additionally runs
+`verifyAacArtifactBoundary` after producing and inspecting the reobfuscated JAR.
 
 ## Live Registration
 

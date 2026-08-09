@@ -13,6 +13,7 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker
 import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
 import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
 import com.syaru.advancedassemblycomputing.execution.AACThreadSidecarFailure;
+import com.syaru.advancedassemblycomputing.execution.AACThreadSidecarMigration;
 import com.syaru.advancedassemblycomputing.execution.AacThreadState;
 import com.syaru.advancedassemblycomputing.execution.InvalidSidecarException;
 import com.syaru.advancedassemblycomputing.execution.PreparedCraftingTableWork;
@@ -57,7 +58,8 @@ public abstract class ECOCraftingThreadBatchMixin
         implements AACCraftingTableBatchThread {
     /** 破損NBTで一Threadへ過大なAEKey配列を確保しない固定上限。 */
     private static final int MAXIMUM_EXACT_OUTPUT_KEYS = 65_536;
-    private static final int SIDECAR_SCHEMA = 1;
+    private static final int SIDECAR_SCHEMA =
+            AACThreadSidecarMigration.CURRENT_SCHEMA;
     private static final String NBT_SIDECAR =
             "aacCraftingTableBatch";
     private static final String NBT_STATE = "state";
@@ -420,7 +422,17 @@ public abstract class ECOCraftingThreadBatchMixin
                 + "; transactionId="
                 + String.valueOf(aac$quarantineTransactionId)
                 + "; ownerTransactionId="
-                + String.valueOf(aac$quarantineOwnerTransactionId);
+                + String.valueOf(aac$quarantineOwnerTransactionId)
+                + "; rawPayloadExportable="
+                + String.valueOf(aac$quarantinedRawSidecar != null);
+    }
+
+    @Override
+    public Optional<Tag> aac$quarantinedRawSidecar() {
+        return aac$isQuarantined()
+                && aac$quarantinedRawSidecar != null
+                ? Optional.of(aac$quarantinedRawSidecar.copy())
+                : Optional.empty();
     }
 
     @Override
@@ -731,8 +743,12 @@ public abstract class ECOCraftingThreadBatchMixin
                         AACThreadSidecarFailure.INVALID_STATE,
                         "sidecar is not a compound tag");
             }
-            if (AacThreadState.QUARANTINED.name()
-                    .equals(sidecar.getString(NBT_STATE))) {
+            int schema = sidecar.getInt("schema");
+            if ((schema == AACThreadSidecarMigration.LEGACY_SCHEMA
+                    || schema == SIDECAR_SCHEMA)
+                    && sidecar.contains(NBT_STATE, Tag.TAG_STRING)
+                    && AacThreadState.QUARANTINED.name()
+                            .equals(sidecar.getString(NBT_STATE))) {
                 aac$loadPersistedQuarantine(sidecar);
                 return;
             }
@@ -961,23 +977,34 @@ public abstract class ECOCraftingThreadBatchMixin
     @Unique
     private void aac$loadValidatedSidecar(
             CompoundTag sidecar) {
-        if (sidecar.getInt("schema") != SIDECAR_SCHEMA) {
-            throw new InvalidSidecarException(
-                    AACThreadSidecarFailure.UNKNOWN_SCHEMA,
-                    "unknown AAC crafting-table batch sidecar schema");
-        }
-        String storedState =
-                sidecar.getString(NBT_STATE);
-        if (!storedState.isEmpty()
-                && !AacThreadState.RUNNING.name()
-                        .equals(storedState)
-                && !AacThreadState.OUTPUT_READY.name()
-                        .equals(storedState)
-                && !AacThreadState.NONE.name()
-                        .equals(storedState)) {
+        int schema = sidecar.getInt("schema");
+        boolean hasState = sidecar.contains(NBT_STATE);
+        if (hasState
+                && !sidecar.contains(NBT_STATE, Tag.TAG_STRING)) {
             throw new InvalidSidecarException(
                     AACThreadSidecarFailure.INVALID_STATE,
-                    "invalid AAC crafting-table batch state");
+                    "AAC crafting-table batch state is not a string");
+        }
+        String storedState =
+                sidecar.contains(NBT_STATE, Tag.TAG_STRING)
+                        ? sidecar.getString(NBT_STATE)
+                        : "";
+        boolean hasActivePayload =
+                sidecar.contains("transactionId")
+                        || sidecar.contains("ownerTransactionId")
+                        || sidecar.contains("payloadDigest")
+                        || sidecar.contains("mode")
+                        || sidecar.contains("exactOutputs");
+        AACThreadSidecarMigration.StateResolution migration =
+                AACThreadSidecarMigration.resolve(
+                        schema,
+                        hasState,
+                        storedState,
+                        hasActivePayload,
+                        ((ECOCraftingThread) (Object) this).isOutputReady());
+        if (migration.state() == AacThreadState.NONE) {
+            aac$state = AacThreadState.NONE;
+            return;
         }
         if (!sidecar.hasUUID("transactionId")
                 || !sidecar.hasUUID("ownerTransactionId")) {
@@ -1022,11 +1049,7 @@ public abstract class ECOCraftingThreadBatchMixin
         aac$payloadDigest = payloadDigest;
         aac$batchMode = batchMode;
         aac$exactOutputs = exactOutputs;
-        aac$state =
-                AacThreadState.OUTPUT_READY.name()
-                        .equals(storedState)
-                ? AacThreadState.OUTPUT_READY
-                : AacThreadState.RUNNING;
+        aac$state = migration.state();
     }
 
     @Unique
