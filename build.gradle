@@ -5,6 +5,22 @@ plugins {
 group = mod_group
 version = mod_version
 
+def expectedMinecraftVersion = '1.20.1'
+if (minecraft_version != expectedMinecraftVersion) {
+    throw new GradleException(
+            "The Forge AAC build must target ${expectedMinecraftVersion}, got ${minecraft_version}")
+}
+
+def ae2Variant = (findProperty('ae2Variant') ?: 'upstream').toString().toLowerCase(Locale.ROOT)
+def ae2Profiles = [
+        upstream: [version: '15.4.10', localFile: 'appliedenergistics2-forge-15.4.10.jar'],
+        uelm: [version: '15.5.0-uelm', localFile: 'appliedenergistics2-forge-15.5.0-uelm.jar']
+]
+if (!ae2Profiles.containsKey(ae2Variant)) {
+    throw new GradleException("Unsupported ae2Variant '${ae2Variant}'. Use upstream or uelm.")
+}
+def ae2Profile = ae2Profiles[ae2Variant]
+
 base {
     archivesName = "aac${mod_version}_${minecraft_version}"
 }
@@ -48,9 +64,16 @@ minecraft {
 repositories {
     mavenCentral()
     flatDir {
-        // 再難読化済みACO配布JARをForgeGradleのdeobf対象として解決する。
-        def acoJarProperty = findProperty('acoJar')
-        dirs(acoJarProperty == null ? file("${buildDir}/aco-contract") : file(acoJarProperty).parentFile)
+    // 再難読化済みACO配布JARをForgeGradleのdeobf対象として解決する。
+    def acoJarProperty = findProperty('acoJar')
+    dirs(acoJarProperty == null ? file("${buildDir}/aco-contract") : file(acoJarProperty).parentFile)
+    }
+    maven {
+        name = 'ExpandiumReleases'
+        url = 'https://repo.expandium.net/releases'
+        content {
+            includeGroup 'appeng'
+        }
     }
     maven {
         name = 'ModMaven'
@@ -77,9 +100,12 @@ repositories {
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.4.18'
-
+    if (findProperty('aacMetadataOnly') != 'true') {
     def localModsDir = file(findProperty('aacLocalModsDir') ?: '../../mods')
-    def localAe2 = new File(localModsDir, 'appliedenergistics2-forge-15.4.10.jar')
+    def ae2JarProperty = findProperty('ae2Jar')
+    def localAe2 = ae2JarProperty == null
+            ? new File(localModsDir, ae2Profile.localFile)
+            : file(ae2JarProperty)
     // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.3.0を解決する。
     def localNeoEco = [
         new File(localModsDir, 'neoecoae-20.3.0.jar'),
@@ -97,21 +123,15 @@ dependencies {
         throw new GradleException("ACO contract JAR must use a versioned filename: ${localAco}")
     }
     def acoVersion = acoVersionMatcher.group(1)
-    // FlatDir derives the module name from the part before the final version
-    // separator. Keep this aligned with both legacy and versioned ACO names.
-    def acoVersionSeparator = acoStem.lastIndexOf('-')
-    def acoModuleName = acoVersionSeparator > 0
-            ? acoStem.substring(0, acoVersionSeparator)
-            : acoStem
-    def localAcoDependency = project.dependencies.create(
-            group: 'local.aco',
-            name: acoModuleName,
-            version: acoVersion)
+    // Resolve the exact file supplied by the caller. This also supports the
+    // new aco<version>_<minecraft>.jar name without a legacy fixed filename.
+    def localAcoDependency = project.dependencies.create(files(localAco))
 
     // 必須の検証済みArtifactが一つでも欠ける場合は、推測したAPIでビルドを続行しない。
-    if (!localAe2.isFile() || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
+    if ((ae2Variant == 'upstream' && !localAe2.isFile())
+            || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
         throw new GradleException(
-                'AAC requires the exact local AE2, Neo ECO, LDLib, and explicit ACO contract artifacts documented by this project.')
+                'AAC requires the selected AE2 profile, exact Neo ECO, LDLib, and explicit ACO contract artifacts documented by this project.')
     }
 
     def acoArchive = new java.util.jar.JarFile(localAco)
@@ -121,14 +141,25 @@ dependencies {
             throw new GradleException("ACO contract JAR is not a Forge 1.20.1 artifact: ${localAco}")
         }
         def metadata = acoArchive.getInputStream(metadataEntry).getText('UTF-8')
-        if (!metadata.contains('modId = "ae2_crafting_optimizer"') || !metadata.contains('1.20.1')) {
+        def acoMetadataVersionMatcher =
+                metadata =~ /(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$/
+        def hasMinecraft20Dependency =
+                (metadata =~ /(?s)modId\s*=\s*"minecraft".*?versionRange\s*=\s*"\[1\.20\.1,1\.20\.2\)"/).find()
+        if (!metadata.contains('modId = "ae2_crafting_optimizer"')
+                || !acoMetadataVersionMatcher.find()
+                || acoMetadataVersionMatcher.group(1) != acoVersion
+                || !hasMinecraft20Dependency) {
             throw new GradleException("ACO contract JAR has unexpected 1.20.1 metadata: ${localAco}")
         }
     } finally {
         acoArchive.close()
     }
 
-    implementation files(localAe2)
+    if (localAe2.isFile()) {
+        implementation files(localAe2)
+    } else {
+        implementation fg.deobf("appeng:appliedenergistics2-forge:${ae2Profile.version}")
+    }
     implementation files(localNeoEco)
     compileOnly files(localLdlib)
     /*
@@ -144,6 +175,38 @@ dependencies {
 
     testImplementation platform('org.junit:junit-bom:5.10.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    }
+}
+
+tasks.register('verifyAacPlatformConfiguration') {
+    description = 'Verify the Forge 1.20.1 source and release naming boundary without resolving mod dependencies.'
+    group = 'verification'
+    doLast {
+        def metadata = file('src/main/resources/META-INF/mods.toml').getText('UTF-8')
+        if (!metadata.contains('modId = "advanced_assembly_computing"')
+                || !metadata.contains('modId = "forge"')
+                || !metadata.contains('versionRange = "[1.20.1,1.20.2)"')
+                || metadata.contains('neoforge.mods.toml')
+                || metadata.contains('1.21.1')) {
+            throw new GradleException('Forge 1.20.1 metadata boundary is invalid')
+        }
+        def platformFiles = fileTree('src/main/resources/META-INF').files*.name
+        if (platformFiles != ['mods.toml']) {
+            throw new GradleException("Forge source must contain only mods.toml, got ${platformFiles}")
+        }
+        def forbiddenSource = fileTree('src/main/java').matching {
+            include '**/*.java'
+        }.files.findAll { source ->
+            source.getText('UTF-8').contains('net.neoforged')
+        }
+        if (!forbiddenSource.isEmpty()) {
+            throw new GradleException("Forge source contains NeoForge references: ${forbiddenSource}")
+        }
+        def expectedName = "aac${mod_version}_1.20.1.jar"
+        if (base.archivesName.get() != expectedName[0..-5]) {
+            throw new GradleException("Unexpected Forge archive base name: ${base.archivesName.get()}")
+        }
+    }
 }
 
 tasks.register('verifyAcoPublicApiBoundary') {
@@ -160,8 +223,44 @@ tasks.register('verifyAcoPublicApiBoundary') {
     }
 }
 
+tasks.register('verifyAe2DependencyProfiles') {
+    description = 'Verify the selected AE2 replacement profile and reject private AE2 imports.'
+    group = 'verification'
+    doLast {
+        if (findProperty('aacMetadataOnly') == 'true') {
+            return
+        }
+        def expectedVersion = "${ae2Profile.version}.jar"
+        def selected = configurations.compileClasspath.resolve().findAll {
+            it.name.startsWith('appliedenergistics2-forge-')
+        }
+        def selectedName = selected ? selected[0].name : ''
+        def selectedVersion = selectedName
+                .replaceFirst(/^appliedenergistics2-forge-/, '')
+                .replaceFirst(/_mapped_official_1\.20\.1\.jar$/, '.jar')
+        if (selected.size() != 1 || selectedVersion != expectedVersion) {
+            throw new GradleException(
+                    "AE2 profile '${ae2Variant}' selected ${selected*.name}; expected version [${expectedVersion}]")
+        }
+
+        // CraftingService is an existing AE2 15.4.10/UELM shared integration
+        // surface used by AAC's CPU-priority output path. Keep that behavior
+        // intact; reject only private fork-specific packages.
+        def privateAe2Import = ~/import\s+appeng\.(?:core|client|integration|hooks|network|uelm)\./
+        fileTree('src/main/java').matching { include '**/*.java' }.files.each { source ->
+            if (source.getText('UTF-8') =~ privateAe2Import) {
+                throw new GradleException("AAC source imports a private AE2 package: ${source}")
+            }
+        }
+    }
+}
+
 tasks.named('compileJava').configure {
     dependsOn tasks.named('verifyAcoPublicApiBoundary')
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('verifyAe2DependencyProfiles')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -224,4 +323,72 @@ tasks.register('normalizeReobfJarName') {
 
 tasks.named('build') {
     finalizedBy 'normalizeReobfJarName'
+}
+
+tasks.register('verifyAacArtifactBoundary') {
+    description = 'Verify the Forge 1.20.1 artifact name, metadata, and bytecode boundary.'
+    group = 'verification'
+    dependsOn 'normalizeReobfJarName'
+    doLast {
+        def expected = file("$buildDir/libs/aac${mod_version}_${minecraft_version}.jar")
+        if (!expected.isFile()) {
+            throw new GradleException("Expected AAC artifact is missing: ${expected}")
+        }
+        if (!(expected.name == "aac${mod_version}_1.20.1.jar")) {
+            throw new GradleException("Artifact is not Minecraft-qualified: ${expected.name}")
+        }
+
+        def classVersions = [] as Set
+        def entries = []
+        def archive = new java.util.jar.JarFile(expected)
+        try {
+            archive.entries().each { entry ->
+                entries << entry.name
+                if (entry.name.endsWith('.class')) {
+                    def bytes = new byte[8]
+                    def input = archive.getInputStream(entry)
+                    try {
+                        if (input.read(bytes) != 8
+                                || bytes[0] != (byte) 0xCA
+                                || bytes[1] != (byte) 0xFE
+                                || bytes[2] != (byte) 0xBA
+                                || bytes[3] != (byte) 0xBE) {
+                            throw new GradleException("Invalid class header in ${entry.name}")
+                        }
+                        classVersions << ((bytes[6] & 0xFF) << 8 | (bytes[7] & 0xFF))
+                    } finally {
+                        input.close()
+                    }
+                }
+            }
+            def metadataEntry = archive.getJarEntry('META-INF/mods.toml')
+            if (metadataEntry == null || archive.getJarEntry('META-INF/neoforge.mods.toml') != null) {
+                throw new GradleException('Forge artifact must contain only META-INF/mods.toml')
+            }
+            def metadata = archive.getInputStream(metadataEntry).getText('UTF-8')
+            if (!metadata.contains('modId = "advanced_assembly_computing"')
+                    || !metadata.contains('versionRange = "[1.20.1,1.20.2)"')
+                    || metadata.contains('1.21.1')) {
+                throw new GradleException('AAC artifact contains unexpected Forge metadata')
+            }
+        } finally {
+            archive.close()
+        }
+
+        def forbiddenEntries = entries.findAll {
+            it.startsWith('net/neoforged/')
+                    || it == 'META-INF/neoforge.mods.toml'
+                    || it.contains('1.21.1')
+        }
+        if (!forbiddenEntries.isEmpty()) {
+            throw new GradleException("AAC 1.20.1 artifact contains 1.21.1 entries: ${forbiddenEntries}")
+        }
+        if (classVersions != [61] as Set) {
+            throw new GradleException("AAC 1.20.1 artifact must use Java 17 bytecode, got ${classVersions}")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'verifyAacArtifactBoundary'
 }

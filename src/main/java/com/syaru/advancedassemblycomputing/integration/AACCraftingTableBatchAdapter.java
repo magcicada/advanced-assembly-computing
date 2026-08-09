@@ -290,10 +290,14 @@ public final class AACCraftingTableBatchAdapter
                     "AAC Pattern Bus has no matching receipt");
         }
         String payloadDigest =
-                AACNativePatternBatchSupport.payloadDigest(
-                        record.offeredExecutions(),
-                        record.extractedInputs(),
-                        record.expectedOutputs());
+                AACBatchTransactionDigest.fromPublicRecord(record)
+                        .orElse(null);
+        if (payloadDigest == null) {
+            return new BatchRecoveryResult(
+                    BatchRecoveryResult.TargetState.QUARANTINE,
+                    0L,
+                    "ACO public BatchTransactionRecord.payloadDigest() is unavailable");
+        }
         if (receipt.executions()
                         != record.offeredExecutions()
                 || !receipt.patternFingerprint()

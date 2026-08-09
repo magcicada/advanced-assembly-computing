@@ -1,0 +1,86 @@
+name: AAC Forge 1.20.1 build
+
+on:
+  push:
+    branches:
+      - mc/1.20.1
+    tags:
+      - 'aac-v*-mc1.20.1'
+  pull_request:
+    branches:
+      - mc/1.20.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Forge 1.20.1 artifact (${{ matrix.ae2_variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ae2_variant: [upstream, uelm]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download pinned Forge 1.20.1 dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-mods .ci-deps
+          curl -fL -o .ci-mods/appliedenergistics2-forge-15.4.10.jar https://edge.forgecdn.net/files/7148/487/appliedenergistics2-forge-15.4.10.jar
+          curl -fL -o .ci-mods/neoecoae-20.3.0.jar https://mediafilez.forgecdn.net/files/8438/819/neoecoae-20.3.0.jar
+          curl -fL -o .ci-mods/ldlib-forge-1.20.1-1.0.50.jar https://edge.forgecdn.net/files/7809/449/ldlib-forge-1.20.1-1.0.50.jar
+          curl -fL -o .ci-deps/aco1.5.8_1.20.1.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.5.8/aco1.5.8_1.20.1.jar
+
+      - name: Build and verify
+        run: |
+          chmod +x gradlew
+          ./gradlew clean check --no-daemon --stacktrace \
+            -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" \
+            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco1.5.8_1.20.1.jar" \
+            -Pae2Variant="${{ matrix.ae2_variant }}"
+
+      - name: Upload Minecraft-qualified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aac-1.20.1-${{ matrix.ae2_variant }}-${{ github.sha }}
+          path: build/libs/aac*_1.20.1.jar
+          if-no-files-found: error
+
+  release:
+    name: Publish qualified release asset
+    if: startsWith(github.ref, 'refs/tags/aac-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aac-1.20.1-upstream-${{ github.sha }}
+          path: dist
+
+      - name: Create release without moving historical tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" != "v1.0.3"
+          test "${GITHUB_REF_NAME}" != "v1.0.4"
+          test "$(find dist -maxdepth 1 -type f -name 'aac*_1.20.1.jar' | wc -l)" = 1
+          gh release create "${GITHUB_REF_NAME}" dist/aac*_1.20.1.jar \
+            --verify-tag --generate-notes

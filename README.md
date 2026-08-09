@@ -20,14 +20,33 @@ NeoForge line is maintained independently on `mc/1.21.1`.
 - Minecraft `1.20.1`
 - Forge `47.4.18+`
 - Java `17`
-- Applied Energistics 2 `15.4.10`
+- Applied Energistics 2 `15.4.10`, or the verified AE2-UELM replacement
+  `15.5.0-uelm` using the `uelm` build profile
 - Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.7` in the Forge `1.20.1` line
+- AE2 Crafting Optimizer `1.5.7` through the compatible `1.5.x` Forge contract
 - Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
 - Dedicated server, singleplayer, and Arclight as a normal Forge mod
 
 AE2, Neo ECO, ACO, and AAC are required on both client and server. AQE is not a
 code dependency. AAC's AQE progression recipes load only when AQE is present.
+
+### AE2-UELM replacement profile
+
+AE2-UELM is a replacement fork that keeps the `ae2` mod ID; it is not a second
+AE2 dependency. The verified Forge 1.20.1 artifact is
+`appeng:appliedenergistics2-forge:15.5.0-uelm`, resolved from the Expandium
+releases repository. The default build remains pinned to upstream AE2
+`15.4.10` and its local artifact checks. Select UELM explicitly:
+
+```powershell
+.\gradlew.bat clean check --no-daemon `
+  -Pae2Variant=uelm `
+  -PaacLocalModsDir=C:/path/to/mods `
+  -PacoJar=C:/path/to/aco<version>_1.20.1.jar
+```
+
+The UELM profile does not add a second mod ID or import UELM-private classes.
+AAC continues to use the AE2 public API and the Neo ECO/AAC integration path.
 
 ## Added Blocks
 
@@ -48,6 +67,18 @@ used by the Forge artifact. AAC imports only `com.syaru.ae2craftingoptimizer.api
 the build rejects ACO implementation-package imports. Startup fails before a
 job can be accepted if the public receipt/target contract or required AAC
 Mixin interfaces are missing.
+
+## Platform Releases
+
+The Forge and NeoForge lines are independent source branches:
+
+- `mc/1.20.1` uses Java 17 and produces `aac<version>_1.20.1.jar`.
+- `mc/1.21.1` uses Java 21 and produces `aac<version>_1.21.1.jar`.
+
+New release tags are Minecraft-qualified: `aac-v<version>-mc1.20.1` and
+`aac-v<version>-mc1.21.1`. The old unqualified `v1.0.3` and `v1.0.4` tags are
+historical and must never be moved. Platform-dependent source and resources
+are not merged between branches; shared pure logic is transferred explicitly.
 
 ## Execution Model
 
@@ -131,6 +162,13 @@ The Thread is excluded from new work, exact-output snapshots are empty, and
 neither ME recovery nor block-break drops can consume the uncertain stacks.
 Quarantine is persistent and is not cleared by normal `clearWork`; recovery or
 discard must be an explicit administrator action.
+
+Thread sidecars currently use schema `2`. AAC 1.0.1 schema `1` sidecars are
+accepted only when their complete legacy payload validates; their missing or
+empty state is inferred from the already-loaded Thread output state and then
+rewritten in schema `2`. A current-schema missing state, unknown state, or
+payload in explicit `NONE` is quarantined. The diagnostic API reports whether
+the defensive raw-NBT copy is exportable.
 
 Cancellation before output completion releases only the representative Thread.
 ACO owns the real input escrow and decides what must be returned.
@@ -216,11 +254,13 @@ copy Neo ECO textures. AAC BlockItems add the normal enchantment glint.
 
 ## Build
 
-Pass the Forge 1.20.1 ACO contract explicitly, then:
+Pass the Forge 1.20.1 ACO contract explicitly, then choose either the default
+upstream AE2 profile or the verified UELM profile:
 
 ```powershell
 .\gradlew.bat clean build --no-daemon
 # -PacoJar=C:/path/to/ae2-crafting-optimizer-<version>.jar
+# -Pae2Variant=uelm selects AE2-UELM 15.5.0-uelm
 ```
 
 The output JAR is written to `build/libs`.

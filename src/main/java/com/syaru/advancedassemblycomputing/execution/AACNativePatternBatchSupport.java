@@ -82,31 +82,6 @@ public final class AACNativePatternBatchSupport {
         return sha256(value.toString()) + ':' + context.pattern().getDefinition().getId();
     }
 
-    /** Mirrors ACO's public payload digest without depending on its internals. */
-    public static String payloadDigest(
-            long executions,
-            Iterable<GenericStack> inputs,
-            Iterable<GenericStack> outputs) {
-        StringBuilder value = new StringBuilder(256);
-        value.append("executions=").append(executions);
-        append(value, "inputs", inputs);
-        append(value, "outputs", outputs);
-        return sha256(value.toString());
-    }
-
-    private static void append(
-            StringBuilder target,
-            String name,
-            Iterable<GenericStack> stacks) {
-        target.append('|').append(name);
-        for (GenericStack stack : stacks) {
-            target.append('|')
-                    .append(stack.what().toTagGeneric())
-                    .append('@')
-                    .append(stack.amount());
-        }
-    }
-
     private static String sha256(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
