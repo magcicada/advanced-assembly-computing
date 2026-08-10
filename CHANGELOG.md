@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-10
+
+### Changed
+
+- Synchronized the NeoForge 1.21.1 artifact version with the Forge 1.20.1
+  AAC 1.0.6 maintenance release.
+- Kept the NeoForge runtime implementation unchanged because the public batch
+  payload-digest compatibility repair applies to the Forge 1.20.1 sidecar
+  implementation.
+- Aligned runtime dependency metadata with ACO 1.5.9 and AQE 2.2.4.
+
 ## [1.0.4] - 2026-08-08
 
 ### Changed
