@@ -45,13 +45,13 @@ side = "BOTH"
 [[dependencies.advanced_assembly_computing]]
 modId = "ae2_crafting_optimizer"
 type = "required"
-versionRange = "[1.5.7,1.6.0)"
+versionRange = "[1.5.9,1.6.0)"
 ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies.advanced_assembly_computing]]
 modId = "advanced_quantum_engineering"
 type = "optional"
-versionRange = "[2.2.3,2.3.0)"
+versionRange = "[2.2.4,2.3.0)"
 ordering = "AFTER"
 side = "BOTH"
