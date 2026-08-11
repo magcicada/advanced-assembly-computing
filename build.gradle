@@ -108,8 +108,8 @@ dependencies {
             : file(ae2JarProperty)
     // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.3.0を解決する。
     def localNeoEco = [
-        new File(localModsDir, 'neoecoae-20.5.0.jar'),
-        new File(localModsDir, 'neoecoae-20.5.0.jar.disabled')
+        new File(localModsDir, 'neoecoae-20.4.0.jar'),
+        new File(localModsDir, 'neoecoae-20.4.0.jar.disabled')
     ].find { it.isFile() }
     def localLdlib = new File(localModsDir, 'ldlib-forge-1.20.1-1.0.50.jar')
     def acoJarProperty = findProperty('acoJar')
