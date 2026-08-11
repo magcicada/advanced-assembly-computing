@@ -13,7 +13,7 @@
       "modId": "ae2"
     }
   },
-  "neoEco": ["20.3.0"],
+  "neoEco": ["20.4.0"],
   "ldlib": ["1.0.50"],
   "aco": {
     "patternBatchApi": 4,
